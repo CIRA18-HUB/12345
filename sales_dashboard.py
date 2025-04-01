@@ -148,109 +148,193 @@ st.markdown('<div class="main-header">销售数据分析仪表盘</div>', unsafe
 # 格式化数值的函数
 def format_yuan(value):
     if value >= 100000000:  # 亿元级别
-        return f"{value / 100000000:.4f}亿元"
+        return f"{value / 100000000:.2f}亿元"
     elif value >= 10000:  # 万元级别
-        return f"{value / 10000:.4f}万元"
+        return f"{value / 10000:.2f}万元"
     else:
-        return f"{value:.4f}元"
+        return f"{value:.2f}元"
 
 
-# 加载数据函数
+# 加载数据函数 - 修复版本
 @st.cache_data
 def load_data(file_path=None):
+    """
+    从文件加载数据或使用示例数据，增强错误处理
+    """
     # 如果提供了文件路径，从文件加载
-    if file_path:
+    if file_path and os.path.exists(file_path):
         try:
             df = pd.read_excel(file_path)
+
             # 数据预处理
+            # 确保所有必要的列都存在
+            required_columns = ['客户简称', '所属区域', '发运月份', '申请人', '产品代码', '产品名称',
+                                '订单类型', '单价（箱）', '数量（箱）']
+
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                st.error(f"文件缺少必要的列: {', '.join(missing_columns)}。使用示例数据进行演示。")
+                return load_sample_data()
+
+            # 计算销售额
             df['销售额'] = df['单价（箱）'] * df['数量（箱）']
 
             # 确保发运月份是日期类型
             try:
                 df['发运月份'] = pd.to_datetime(df['发运月份'])
-            except:
-                pass
+            except Exception as e:
+                st.warning(f"转换日期格式时出错: {str(e)}。月份分析功能可能受影响。")
+
+            # 确保所有的字符串列都是字符串类型
+            for col in ['客户简称', '所属区域', '申请人', '产品代码', '产品名称', '订单类型']:
+                df[col] = df[col].astype(str)
 
             # 添加简化产品名称列
-            df['简化产品名称'] = df.apply(lambda row: get_simplified_product_name(row['产品代码'], row['产品名称']),
-                                          axis=1)
+            df['简化产品名称'] = df.apply(
+                lambda row: get_simplified_product_name(row['产品代码'], row['产品名称']),
+                axis=1
+            )
 
             return df
         except Exception as e:
             st.error(f"文件加载失败: {str(e)}。使用示例数据进行演示。")
             return load_sample_data()
     else:
-        # 没有文件路径，使用示例数据
+        # 没有文件路径或文件不存在，使用示例数据
+        if file_path:
+            st.warning(f"文件路径不存在: {file_path}。使用示例数据进行演示。")
         return load_sample_data()
 
 
-# 创建产品代码到简化产品名称的映射函数
+# 创建产品代码到简化产品名称的映射函数 - 修复版本
 def get_simplified_product_name(product_code, product_name):
-    # 从产品名称中提取关键部分
-    if '口力' in product_name:
-        # 提取"口力"之后的产品类型
-        name_parts = product_name.split('口力')[1].split('-')[0].strip()
-        # 进一步简化，只保留主要部分（去掉规格和包装形式）
-        for suffix in ['G分享装袋装', 'G盒装', 'G袋装', 'KG迷你包', 'KG随手包']:
-            if suffix in name_parts:
-                name_parts = name_parts.split(suffix)[0]
+    """
+    从产品名称中提取简化产品名称，增强错误处理
+    """
+    try:
+        # 确保输入是字符串类型
+        if not isinstance(product_name, str):
+            return str(product_code)  # 返回产品代码作为备选
 
-        # 去掉可能的数字和单位
-        simple_name = re.sub(r'\d+\w*\s*', '', name_parts).strip()
+        if '口力' in product_name:
+            # 提取"口力"之后的产品类型
+            name_parts = product_name.split('口力')
+            if len(name_parts) > 1:
+                name_part = name_parts[1]
+                if '-' in name_part:
+                    name_part = name_part.split('-')[0].strip()
 
-        # 始终包含产品代码以确保唯一性
-        return f"{simple_name} ({product_code})"
-    else:
-        # 如果无法提取，则返回产品代码
-        return product_code
+                # 进一步简化，只保留主要部分（去掉规格和包装形式）
+                for suffix in ['G分享装袋装', 'G盒装', 'G袋装', 'KG迷你包', 'KG随手包']:
+                    if suffix in name_part:
+                        name_part = name_part.split(suffix)[0]
+                        break
+
+                # 去掉可能的数字和单位
+                simple_name = re.sub(r'\d+\w*\s*', '', name_part).strip()
+
+                if simple_name:  # 确保简化名称不为空
+                    return f"{simple_name} ({product_code})"
+
+        # 如果无法提取或处理中出现错误，则返回产品代码
+        return str(product_code)
+    except Exception as e:
+        # 捕获任何异常，确保函数始终返回一个字符串
+        print(f"简化产品名称时出错: {e}，产品代码: {product_code}")
+        return str(product_code)
 
 
-# 创建示例数据（以防用户没有上传文件）
+# 创建示例数据（以防用户没有上传文件） - 修复版本
 @st.cache_data
 def load_sample_data():
-    # 创建简化版示例数据，添加更多变化性
-    data = {
-        '客户简称': ['广州佳成行', '广州佳成行', '广州佳成行', '广州佳成行', '广州佳成行',
-                     '广州佳成行', '河南甜丰號', '河南甜丰號', '河南甜丰號', '河南甜丰號',
-                     '河南甜丰號', '广州佳成行', '河南甜丰號', '广州佳成行', '河南甜丰號',
-                     '广州佳成行'],
-        '所属区域': ['东', '东', '东', '东', '东', '东', '中', '中', '中', '中', '中',
-                     '南', '中', '北', '北', '西'],
-        '发运月份': ['2025-03', '2025-03', '2025-03', '2025-03', '2025-03', '2025-03',
-                     '2025-03', '2025-03', '2025-03', '2025-03', '2025-03', '2025-03',
-                     '2025-03', '2025-03', '2025-03', '2025-03'],
-        '申请人': ['梁洪泽', '梁洪泽', '梁洪泽', '梁洪泽', '梁洪泽', '梁洪泽',
-                   '胡斌', '胡斌', '胡斌', '胡斌', '胡斌', '梁洪泽', '胡斌', '梁洪泽',
-                   '胡斌', '梁洪泽'],
-        '产品代码': ['F3415D', 'F3421D', 'F0104J', 'F0104L', 'F3411A', 'F01E4B',
-                     'F01L4C', 'F01C2P', 'F01E6D', 'F3450B', 'F3415B', 'F0110C',
-                     'F0183F', 'F01K8A', 'F0183K', 'F0101P'],
-        '产品名称': ['口力酸小虫250G分享装袋装-中国', '口力可乐瓶250G分享装袋装-中国',
-                     '口力比萨XXL45G盒装-中国', '口力比萨68G袋装-中国', '口力午餐袋77G袋装-中国',
-                     '口力汉堡108G袋装-中国', '口力扭扭虫2KG迷你包-中国', '口力字节软糖2KG迷你包-中国',
-                     '口力西瓜1.5KG随手包-中国', '口力七彩熊1.5KG随手包-中国',
-                     '口力软糖新品A-中国', '口力软糖新品B-中国', '口力软糖新品C-中国', '口力软糖新品D-中国',
-                     '口力软糖新品E-中国'],
-        '订单类型': ['订单-正常产品'] * 16,
-        '单价（箱）': [121.44, 121.44, 216.96, 126.72, 137.04, 137.04, 127.2, 127.2,
-                     180, 180, 180, 150, 160, 170, 180, 190],
-        '数量（箱）': [10, 10, 20, 50, 252, 204, 7, 2, 6, 6, 6, 30, 20, 15, 10, 5]
-    }
+    """
+    创建示例数据，确保所有列表长度一致
+    """
+    # 产品代码
+    product_codes = [
+        'F3415D', 'F3421D', 'F0104J', 'F0104L', 'F3411A', 'F01E4B',
+        'F01L4C', 'F01C2P', 'F01E6D', 'F3450B', 'F3415B', 'F0110C',
+        'F0183F', 'F01K8A', 'F0183K', 'F0101P'
+    ]
 
-    df = pd.DataFrame(data)
-    df['销售额'] = df['单价（箱）'] * df['数量（箱）']
+    # 产品名称，确保与产品代码数量一致
+    product_names = [
+        '口力酸小虫250G分享装袋装-中国', '口力可乐瓶250G分享装袋装-中国',
+        '口力比萨XXL45G盒装-中国', '口力比萨68G袋装-中国', '口力午餐袋77G袋装-中国',
+        '口力汉堡108G袋装-中国', '口力扭扭虫2KG迷你包-中国', '口力字节软糖2KG迷你包-中国',
+        '口力西瓜1.5KG随手包-中国', '口力七彩熊1.5KG随手包-中国',
+        '口力软糖新品A-中国', '口力软糖新品B-中国', '口力软糖新品C-中国', '口力软糖新品D-中国',
+        '口力软糖新品E-中国', '口力软糖新品F-中国'
+    ]
 
-    # 增加销售额的变化性，避免所有区域都有相同的销售额
-    # 通过groupby后乘以不同的随机因子来实现
-    region_factors = {'东': 5.2, '南': 3.8, '中': 0.9, '北': 1.6, '西': 1.3}
+    # 客户简称，确保长度一致
+    customers = ['广州佳成行', '广州佳成行', '广州佳成行', '广州佳成行', '广州佳成行',
+                 '广州佳成行', '河南甜丰號', '河南甜丰號', '河南甜丰號', '河南甜丰號',
+                 '河南甜丰號', '广州佳成行', '河南甜丰號', '广州佳成行', '河南甜丰號',
+                 '广州佳成行']
 
-    # 应用区域因子
-    for region, factor in region_factors.items():
-        mask = df['所属区域'] == region
-        df.loc[mask, '销售额'] = df.loc[mask, '销售额'] * factor
+    try:
+        # 创建简化版示例数据，添加更多变化性
+        data = {
+            '客户简称': customers,
+            '所属区域': ['东', '东', '东', '东', '东', '东', '中', '中', '中', '中', '中',
+                         '南', '中', '北', '北', '西'],
+            '发运月份': ['2025-03', '2025-03', '2025-03', '2025-03', '2025-03', '2025-03',
+                         '2025-03', '2025-03', '2025-03', '2025-03', '2025-03', '2025-03',
+                         '2025-03', '2025-03', '2025-03', '2025-03'],
+            '申请人': ['梁洪泽', '梁洪泽', '梁洪泽', '梁洪泽', '梁洪泽', '梁洪泽',
+                       '胡斌', '胡斌', '胡斌', '胡斌', '胡斌', '梁洪泽', '胡斌', '梁洪泽',
+                       '胡斌', '梁洪泽'],
+            '产品代码': product_codes,
+            '产品名称': product_names,
+            '订单类型': ['订单-正常产品'] * 16,
+            '单价（箱）': [121.44, 121.44, 216.96, 126.72, 137.04, 137.04, 127.2, 127.2,
+                         180, 180, 180, 150, 160, 170, 180, 190],
+            '数量（箱）': [10, 10, 20, 50, 252, 204, 7, 2, 6, 6, 6, 30, 20, 15, 10, 5]
+        }
 
-    df['简化产品名称'] = df.apply(lambda row: get_simplified_product_name(row['产品代码'], row['产品名称']), axis=1)
-    return df
+        # 创建DataFrame
+        df = pd.DataFrame(data)
+
+        # 计算销售额
+        df['销售额'] = df['单价（箱）'] * df['数量（箱）']
+
+        # 增加销售额的变化性，避免所有区域都有相同的销售额
+        # 通过groupby后乘以不同的随机因子来实现
+        region_factors = {'东': 5.2, '南': 3.8, '中': 0.9, '北': 1.6, '西': 1.3}
+
+        # 应用区域因子
+        for region, factor in region_factors.items():
+            mask = df['所属区域'] == region
+            df.loc[mask, '销售额'] = df.loc[mask, '销售额'] * factor
+
+        # 添加简化产品名称
+        df['简化产品名称'] = df.apply(
+            lambda row: get_simplified_product_name(row['产品代码'], row['产品名称']),
+            axis=1
+        )
+
+        return df
+    except Exception as e:
+        # 如果示例数据创建失败，创建一个最小化的DataFrame
+        st.error(f"创建示例数据时出错: {str(e)}。使用简化版示例数据。")
+
+        # 创建最简单的数据集
+        simple_df = pd.DataFrame({
+            '客户简称': ['示例客户A', '示例客户B', '示例客户C'],
+            '所属区域': ['东', '南', '中'],
+            '发运月份': ['2025-03', '2025-03', '2025-03'],
+            '申请人': ['示例申请人A', '示例申请人B', '示例申请人C'],
+            '产品代码': ['X001', 'X002', 'X003'],
+            '产品名称': ['示例产品A', '示例产品B', '示例产品C'],
+            '订单类型': ['订单-正常产品'] * 3,
+            '单价（箱）': [100, 150, 200],
+            '数量（箱）': [10, 15, 20],
+            '销售额': [1000, 2250, 4000],
+            '简化产品名称': ['产品A (X001)', '产品B (X002)', '产品C (X003)']
+        })
+
+        return simple_df
 
 
 # 定义默认文件路径
@@ -464,53 +548,59 @@ with tabs[0]:  # 销售概览
     }
 
 
-    # 提取包装类型
+    # 修复提取包装类型的函数
     def extract_packaging(product_name):
         """
-        提取产品名称中的包装类型，处理优先级从高到低
-        首先检查组合类型，然后检查单一类型
+        提取产品名称中的包装类型，增强错误处理
         """
-        # 检查组合类型
-        if '分享装袋装' in product_name:
-            return '分享装袋装'
-        elif '分享装盒装' in product_name:
-            return '分享装盒装'
+        try:
+            # 确保产品名称是字符串
+            if not isinstance(product_name, str):
+                return "其他"
 
-        # 按包装大小分类（从大到小）
-        elif '随手包' in product_name:
-            return '随手包'
-        elif '迷你包' in product_name:
-            return '迷你包'
-        elif '分享装' in product_name:
-            return '分享装'
+            # 检查组合类型
+            if '分享装袋装' in product_name:
+                return '分享装袋装'
+            elif '分享装盒装' in product_name:
+                return '分享装盒装'
 
-        # 按包装形式分类
-        elif '袋装' in product_name:
-            return '袋装'
-        elif '盒装' in product_name:
-            return '盒装'
+            # 按包装大小分类（从大到小）
+            elif '随手包' in product_name:
+                return '随手包'
+            elif '迷你包' in product_name:
+                return '迷你包'
+            elif '分享装' in product_name:
+                return '分享装'
 
-        # 处理特殊规格
-        elif 'KG' in product_name or 'kg' in product_name:
-            if '1.5KG' in product_name or '1.5kg' in product_name:
-                return '大包装'
-            elif '2KG' in product_name or '2kg' in product_name:
-                return '大包装'
-            else:
-                return '散装'
-        elif 'G' in product_name:
-            match = re.search(r'(\d+)G', product_name)
-            if match:
-                weight = int(match.group(1))
-                if weight <= 50:
-                    return '小包装'
-                elif weight <= 100:
-                    return '中包装'
-                else:
+            # 按包装形式分类
+            elif '袋装' in product_name:
+                return '袋装'
+            elif '盒装' in product_name:
+                return '盒装'
+
+            # 处理特殊规格
+            elif 'KG' in product_name or 'kg' in product_name:
+                if '1.5KG' in product_name or '1.5kg' in product_name:
                     return '大包装'
+                elif '2KG' in product_name or '2kg' in product_name:
+                    return '大包装'
+                else:
+                    return '散装'
+            elif 'G' in product_name:
+                match = re.search(r'(\d+)G', product_name)
+                if match:
+                    weight = int(match.group(1))
+                    if weight <= 50:
+                        return '小包装'
+                    elif weight <= 100:
+                        return '中包装'
+                    else:
+                        return '大包装'
 
-        # 默认分类
-        return '其他'
+            # 默认分类
+            return '其他'
+        except:
+            return '其他'  # 捕获任何异常并返回默认值
 
 
     filtered_df['包装类型'] = filtered_df['产品名称'].apply(extract_packaging)
@@ -878,6 +968,16 @@ with tabs[2]:  # 客户细分
             labels=['保守型客户', '平衡型客户', '创新型客户']
         )
 
+        # 添加客户类型解释
+        st.markdown('<div class="highlight" style="margin-bottom: 20px;">', unsafe_allow_html=True)
+        st.markdown("""
+        <h3 style="font-size: 1.3rem; color: #1E88E5; margin-bottom: 10px;">客户类型解释说明</h3>
+        <p><strong>保守型客户</strong>：新品销售占比在0-10%之间，对新品接受度较低，倾向于购买成熟稳定的产品。</p>
+        <p><strong>平衡型客户</strong>：新品销售占比在10-30%之间，对新品有一定接受度，同时保持对现有产品的购买。</p>
+        <p><strong>创新型客户</strong>：新品销售占比在30-100%之间，积极尝试新品，是推广新产品的重要客户群体。</p>
+        """, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
         # 客户分类展示
         st.markdown('<div class="sub-header section-gap">客户类型分布</div>', unsafe_allow_html=True)
 
@@ -966,7 +1066,7 @@ with tabs[2]:  # 客户细分
                     y=[avg_new_ratio],
                     name=f"{customer_type} - 新品占比",
                     marker_color='rgb(26, 118, 255)',
-                    text=[f"{avg_new_ratio:.1f}%"],
+                    text=[f"{avg_new_ratio:.2f}%"],  # 修改为2位小数
                     textposition='outside',
                     textfont=dict(size=14)
                 ),
@@ -1096,7 +1196,7 @@ with tabs[2]:  # 客户细分
                 y=[ratio],
                 name=customer,
                 marker_color=color_scale[color_idx],
-                text=[f"{ratio:.1f}%"],
+                text=[f"{ratio:.2f}%"],  # 修改为2位小数
                 textposition='outside',
                 textfont=dict(size=14)
             ))
@@ -1443,37 +1543,7 @@ with tabs[4]:  # 市场渗透率
 
             st.plotly_chart(fig_region_penetration, use_container_width=True)
 
-            # 区域渗透率详细数据 - 改为图表而不是表格
-            st.markdown('<div class="sub-header section-gap">区域渗透率详细数据</div>', unsafe_allow_html=True)
-
-            # 创建柱状图
-            fig_penetration = px.bar(
-                region_penetration,
-                x='所属区域',
-                y='渗透率',
-                text=region_penetration['渗透率'].apply(lambda x: f"{x:.2f}%"),
-                color='所属区域',
-                title='各区域新品渗透率',
-                labels={'渗透率': '渗透率 (%)', '所属区域': '区域'},
-                height=500
-            )
-
-            fig_penetration.update_traces(
-                textposition='outside',
-                textfont=dict(size=14)
-            )
-
-            fig_penetration.update_layout(
-                xaxis_title=dict(text="区域", font=dict(size=16)),
-                yaxis_title=dict(text="渗透率 (%)", font=dict(size=16)),
-                xaxis_tickfont=dict(size=14),
-                yaxis_tickfont=dict(size=14),
-                margin=dict(t=60, b=80, l=80, r=60),
-                plot_bgcolor='rgba(0,0,0,0)',
-                showlegend=False
-            )
-
-            st.plotly_chart(fig_penetration, use_container_width=True)
+            
 
             # 渗透率和销售额关系
             st.markdown('<div class="sub-header section-gap">渗透率与销售额的关系</div>', unsafe_allow_html=True)
